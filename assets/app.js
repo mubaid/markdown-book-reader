@@ -266,8 +266,9 @@
         if (label) label.textContent = percent >= 99 ? 'Finished · 100%' : `Continue reading · ${percent}%`;
 
         const validChapter = progress.chapterId && (chapters.length === 0 || chapters.includes(progress.chapterId));
-        if (validChapter) {
-          card.setAttribute('href', `/${encodeURIComponent(bookId)}/${encodeURIComponent(progress.chapterId)}`);
+        const link = card.querySelector('.book-link');
+        if (validChapter && link) {
+          link.setAttribute('href', `/${encodeURIComponent(bookId)}/${encodeURIComponent(progress.chapterId)}`);
         }
       }
 

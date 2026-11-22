@@ -31,6 +31,16 @@ function bookDir(bookId) {
   return path.join(LIBRARY_DIR, bookId);
 }
 
+// Version static asset URLs by mtime so cached CSS/JS is replaced when it changes.
+function assetHref(name) {
+  try {
+    const stat = fs.statSync(path.join(__dirname, 'assets', name));
+    return `/assets/${name}?v=${Math.floor(stat.mtimeMs)}`;
+  } catch {
+    return `/assets/${name}`;
+  }
+}
+
 function readBook(bookId) {
   if (!isSafeId(bookId)) return null;
   try {
@@ -89,31 +99,67 @@ function coverPath(book) {
   return fs.existsSync(filePath) ? `/${book.id}/${book.cover}` : null;
 }
 
+function authorSlug(name) {
+  return String(name || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function authorHref(name) {
+  return `/author/${authorSlug(name)}`;
+}
+
 function authorLine(book) {
-  const authors = Array.isArray(book.authors) ? book.authors.filter(Boolean).join(', ') : '';
-  const year = book.year ? ` · ${book.year}` : '';
-  return `${authors || 'Unknown author'}${year}`;
+  const authors = Array.isArray(book.authors) ? book.authors.filter(Boolean) : [];
+  const names = authors.length
+    ? authors
+      .map(name => `<a class="author-link" href="${esc(authorHref(name))}">${esc(name)}</a>`)
+      .join(', ')
+    : 'Unknown author';
+  const year = book.year ? ` · ${esc(book.year)}` : '';
+  return `${names}${year}`;
+}
+
+function findAuthor(slug) {
+  if (!isSafeId(slug)) return null;
+  let name = null;
+  const books = [];
+  for (const book of listBooks()) {
+    const authors = Array.isArray(book.authors) ? book.authors.filter(Boolean) : [];
+    const matched = authors.find(author => authorSlug(author) === slug);
+    if (!matched) continue;
+    if (!name) name = matched;
+    books.push(book);
+  }
+  return name ? { name, books } : null;
 }
 
 // ── Catalog ────────────────────────────────────────────────────────
 
-function renderCatalog(books) {
-  const cards = books.map(book => {
+function renderBookCards(books) {
+  return books.map(book => {
     const cover = coverPath(book);
     const coverHtml = cover
       ? `<img src="${esc(cover)}" alt="Cover of ${esc(book.title)}" loading="lazy">`
       : `<span class="cover-fallback" aria-hidden="true">${esc(book.title.slice(0, 1))}</span>`;
-    return `      <a class="book-card" href="/${esc(book.id)}/" data-book-id="${esc(book.id)}" data-chapter-count="${book.chapters.length}" data-chapters="${esc(JSON.stringify(book.chapters.map(chapter => chapter.id)))}">
+    return `      <div class="book-card" data-book-id="${esc(book.id)}" data-chapter-count="${book.chapters.length}" data-chapters="${esc(JSON.stringify(book.chapters.map(chapter => chapter.id)))}">
+        <a class="book-link" href="/${esc(book.id)}/" aria-label="Open ${esc(book.title)}"></a>
         <div class="book-cover">${coverHtml}</div>
         <div class="book-info">
           <h2>${esc(book.title)}</h2>
-          <p class="book-authors">${esc(authorLine(book))}</p>
+          <p class="book-authors">${authorLine(book)}</p>
           <div class="book-progress" aria-hidden="true"><span data-progress-bar></span></div>
           <p class="book-status" data-progress-label>Start reading</p>
         </div>
-      </a>`;
+      </div>`;
   }).join('\n');
+}
 
+function renderCatalog(books) {
   const body = books.length === 0
     ? `<div class="empty-state">
         <h2>Your shelf is empty</h2>
@@ -121,7 +167,7 @@ function renderCatalog(books) {
         <pre><code>npm run convert</code></pre>
         <p>Books you have read show up here with a progress bar.</p>
       </div>`
-    : `<div class="book-grid" id="book-grid">\n${cards}\n      </div>`;
+    : `<div class="book-grid" id="book-grid">\n${renderBookCards(books)}\n      </div>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -129,7 +175,7 @@ function renderCatalog(books) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Library</title>
-  <link rel="stylesheet" href="/assets/style.css">
+  <link rel="stylesheet" href="${assetHref('style.css')}">
 </head>
 <body class="catalog-page">
   <header class="catalog-header">
@@ -139,7 +185,34 @@ function renderCatalog(books) {
   <main class="catalog-main">
       ${body}
   </main>
-  <script src="/assets/app.js"></script>
+  <script src="${assetHref('app.js')}"></script>
+</body>
+</html>`;
+}
+
+// ── Author page ────────────────────────────────────────────────────
+
+function renderAuthorPage(author, books) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${esc(author.name)} — Library</title>
+  <link rel="stylesheet" href="${assetHref('style.css')}">
+</head>
+<body class="catalog-page">
+  <header class="catalog-header">
+    <p class="catalog-back"><a href="/">← Library</a></p>
+    <h1>${esc(author.name)}</h1>
+    <p class="catalog-subtitle">${books.length} book${books.length === 1 ? '' : 's'} in the library</p>
+  </header>
+  <main class="catalog-main">
+      <div class="book-grid" id="book-grid">
+${renderBookCards(books)}
+      </div>
+  </main>
+  <script src="${assetHref('app.js')}"></script>
 </body>
 </html>`;
 }
@@ -153,7 +226,7 @@ function renderSidebar(book, activeId) {
   }).join('\n');
 
   return `      <a href="/" class="logo">Library</a>
-      <p class="subtitle">${esc(book.title)}<br><span class="sidebar-authors">${esc(authorLine(book))}</span></p>
+      <p class="subtitle">${esc(book.title)}<br><span class="sidebar-authors">${authorLine(book)}</span></p>
       <nav>
 ${links}
       </nav>`;
@@ -181,7 +254,7 @@ function renderReaderPage(book, chapter, index, markdown, options = {}) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${esc(chapter.title)} — ${esc(book.title)}</title>
-  <link rel="stylesheet" href="/assets/style.css">
+  <link rel="stylesheet" href="${assetHref('style.css')}">
 </head>
 <body class="reader" data-book-id="${esc(book.id)}" data-chapter-id="${esc(chapter.id)}"
       data-chapter-index="${index}" data-chapter-count="${book.chapters.length}"
@@ -204,7 +277,7 @@ ${renderSidebar(book, chapter.id)}
 ${renderPagination(book, index)}
     </main>
   </div>
-  <script src="/assets/app.js"></script>
+  <script src="${assetHref('app.js')}"></script>
 </body>
 </html>`;
 }
@@ -215,8 +288,10 @@ module.exports = {
   isSafeFile,
   readBook,
   listBooks,
+  findAuthor,
   readChapter,
   renderCatalog,
+  renderAuthorPage,
   renderReaderPage,
   bookDir,
   esc,

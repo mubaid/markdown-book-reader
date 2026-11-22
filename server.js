@@ -10,9 +10,11 @@ const {
   bookDir,
   isSafeFile,
   listBooks,
+  findAuthor,
   readBook,
   readChapter,
   renderCatalog,
+  renderAuthorPage,
   renderReaderPage,
 } = require('./book');
 
@@ -145,6 +147,16 @@ function handle(req, res) {
 
   if (segments[0] === 'favicon.ico') {
     send(req, res, 204, 'image/x-icon', '');
+    return;
+  }
+
+  if (segments[0] === 'author') {
+    const author = segments.length === 2 ? findAuthor(segments[1]) : null;
+    if (!author) {
+      notFound(req, res);
+      return;
+    }
+    html(req, res, 200, renderAuthorPage(author, author.books));
     return;
   }
 
