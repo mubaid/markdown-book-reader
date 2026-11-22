@@ -30,7 +30,7 @@ E-book apps want your library in their cloud, your reading habits in their analy
 - 🔍 **In-book search** — full-text search across every chapter of a book with snippets and match counts; results jump to the exact paragraph and mark matches in the page.
 - 🔊 **Read-aloud** — text-to-speech from your current paragraph, following along across paragraphs and chapters with auto-scroll. Voice and rate are configurable. See [Read-aloud limits](#read-aloud-limits).
 - 🏷️ **Shelf tags & filters** — tag books, filter by status (Unread/Reading/Finished) and tags, sort by recency, title, author, or date added.
-- 📲 **Install as an app** — PWA with offline reading: opened chapters stay readable in airplane mode once cached. Offline caching needs HTTPS or `localhost` (a browser security rule); on plain `http://` LAN addresses the app still installs, but offline caching is unavailable.
+- 📲 **Install as an app** — PWA with offline reading: every chapter you open is cached, the next chapter is quietly cached too, and an **Offline** button in the reader makes a whole book readable in airplane mode. Offline caching needs HTTPS or `localhost` (a browser security rule); on plain `http://` LAN addresses the app still installs, but offline caching is unavailable.
 - 🪶 **Tiny footprint** — one Node dependency (`marked`) and three Python converters. No database, no build step, no framework.
 
 ## Quickstart

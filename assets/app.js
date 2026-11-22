@@ -282,6 +282,123 @@
         return true;
       },
     };
+
+    if (offlineSupported()) initOfflineReader(window.MBR);
+  }
+
+  // ── Offline support (PWA) ───────────────────────────────────────
+  //
+  // The service worker caches every chapter page it serves (sw.js). On top of
+  // that we: (1) quietly prefetch the next chapter after each read, so "next"
+  // works offline, and (2) offer an "Offline" button that walks all chapters
+  // of the book (plus their images) into the cache.
+
+  const OFFLINE_PREFIX = 'markdown-book-reader:offline:';
+
+  function offlineSupported() {
+    return 'serviceWorker' in navigator && window.isSecureContext;
+  }
+
+  function isOfflineSaved(bookId) {
+    try {
+      return Boolean(localStorage.getItem(OFFLINE_PREFIX + bookId));
+    } catch {
+      return false;
+    }
+  }
+
+  function markOfflineSaved(bookId, value) {
+    try {
+      if (value) localStorage.setItem(OFFLINE_PREFIX + bookId, String(Date.now()));
+      else localStorage.removeItem(OFFLINE_PREFIX + bookId);
+    } catch {
+      /* storage blocked: button state is session-only */
+    }
+  }
+
+  function chapterUrl(bookId, chapterId) {
+    return `/${encodeURIComponent(bookId)}/${encodeURIComponent(chapterId)}`;
+  }
+
+  // Fetching a chapter HTML does not fetch its <img> children; pull them
+  // through the service worker explicitly so offline pages show images too.
+  async function cacheChapterResources(html) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    for (const img of doc.querySelectorAll('img[src]')) {
+      try {
+        const url = new URL(img.getAttribute('src'), window.location.origin);
+        if (url.origin === window.location.origin) await fetch(url);
+      } catch {
+        /* skip unreadable image URLs */
+      }
+    }
+  }
+
+  function initOfflineReader(mbr) {
+    const actions = document.querySelector('.reader-actions');
+    if (!actions) return;
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'meta-button';
+    button.setAttribute('aria-label', 'Make this book available offline');
+    let saved = isOfflineSaved(mbr.bookId);
+    let busy = false;
+
+    function render() {
+      button.textContent = saved ? 'Offline ✓' : 'Offline';
+      button.classList.toggle('active', saved);
+      button.disabled = busy;
+    }
+
+    render();
+    actions.insertBefore(button, actions.firstChild);
+
+    button.addEventListener('click', async () => {
+      if (busy) return;
+      busy = true;
+      render();
+      const toast = message => window.MBRToast && window.MBRToast(message);
+      // Make sure a worker is actually in control, or nothing gets cached.
+      try {
+        await navigator.serviceWorker.ready;
+      } catch {
+        /* older browsers: proceed, fetches just won't be cached */
+      }
+      let done = 0;
+      for (const chapterId of mbr.chapters) {
+        try {
+          const response = await fetch(chapterUrl(mbr.bookId, chapterId));
+          if (!response.ok) throw new Error(String(response.status));
+          await cacheChapterResources(await response.text());
+        } catch {
+          busy = false;
+          render();
+          toast('Could not finish — check your connection');
+          return;
+        }
+        done += 1;
+        toast(`Making offline · ${done}/${mbr.chapters.length} chapters`);
+      }
+      busy = false;
+      saved = true;
+      markOfflineSaved(mbr.bookId, true);
+      render();
+      toast('Ready to read offline');
+    });
+
+    // One chapter ahead, cached quietly, so "next" works offline by default.
+    const nextId = mbr.chapters[mbr.chapterIndex + 1];
+    if (nextId && !saved && navigator.onLine) {
+      window.setTimeout(() => {
+        fetch(chapterUrl(mbr.bookId, nextId))
+          .then(response => (response.ok ? response.text() : null))
+          .then(html => (html ? cacheChapterResources(html) : null))
+          .catch(() => {
+            /* prefetch is best-effort */
+          });
+      }, 1500);
+    }
   }
 
   // ── Catalog ─────────────────────────────────────────────────────
