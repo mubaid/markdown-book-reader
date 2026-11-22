@@ -1,4 +1,4 @@
-# 📚 ebook-reader
+# 📚 markdown-book-reader
 
 **Your books. Your server. Your phone.**
 
@@ -15,7 +15,7 @@ Turn your EPUB, PDF, and Markdown books into a clean, phone-friendly reading web
 
 E-book apps want your library in their cloud, your reading habits in their analytics, and your money every month. Meanwhile the best reading device you own — your phone — is one browser tab away from your own server.
 
-**ebook-reader** converts your DRM-free books into plain Markdown chapters and serves them as a fast, responsive website. Every book remembers the *exact paragraph* you stopped at. Everything is a file you can open, edit, and back up. If this project disappeared tomorrow, your library would still be readable in any text editor.
+**markdown-book-reader** converts your DRM-free books into plain Markdown chapters and serves them as a fast, responsive website. Every book remembers the *exact paragraph* you stopped at. Everything is a file you can open, edit, and back up. If this project disappeared tomorrow, your library would still be readable in any text editor.
 
 ## Features
 
@@ -32,8 +32,8 @@ E-book apps want your library in their cloud, your reading habits in their analy
 Requirements: **Node.js 20+**, **Python 3.10+**, Linux or macOS.
 
 ```bash
-git clone https://github.com/mubaid/ebook-reader.git
-cd ebook-reader
+git clone https://github.com/mubaid/markdown-book-reader.git
+cd markdown-book-reader
 npm install
 npm run setup:python        # creates .venv with ebooklib, markdownify, PyMuPDF
 

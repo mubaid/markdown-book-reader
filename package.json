@@ -1,5 +1,5 @@
 {
-  "name": "ebook-reader",
+  "name": "markdown-book-reader",
   "version": "1.0.0",
   "private": true,
   "description": "Local PDF/EPUB to Markdown library with a mobile-friendly reader",
@@ -7,7 +7,7 @@
   "author": "Mohamed Ubaid",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mubaid/ebook-reader.git"
+    "url": "git+https://github.com/mubaid/markdown-book-reader.git"
   },
   "keywords": [
     "ebook",
