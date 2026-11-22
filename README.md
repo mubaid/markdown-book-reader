@@ -123,7 +123,7 @@ cover: cover.jpg
 
 ### How resume works
 
-The browser stores progress in `localStorage` under `ebook-reader:progress:<book-id>`:
+The browser stores progress in `localStorage` under `markdown-book-reader:progress:<book-id>`:
 
 ```json
 {

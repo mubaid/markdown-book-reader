@@ -1,7 +1,7 @@
 'use strict';
 
 (function () {
-  const PROGRESS_PREFIX = 'ebook-reader:progress:';
+  const PROGRESS_PREFIX = 'markdown-book-reader:progress:';
 
   function safeParse(value) {
     try {
