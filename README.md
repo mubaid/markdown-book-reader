@@ -22,7 +22,7 @@ E-book apps want your library in their cloud, your reading habits in their analy
 - 📖 **Three formats in, one library out** — EPUB, PDF, and native Markdown (single files or folders of chapters) all become the same clean chapter format.
 - 🎯 **Paragraph-precise resume** — progress is anchored to a hash of the paragraph's text, not a scroll offset. Reconvert a book and your place survives.
 - 📱 **Phone-first reader** — sidebar table of contents, prev/next chapter navigation, readable typography, progress percentage, dark-mode-friendly CSS.
-- 🖼️ **A real shelf** — cover thumbnails, per-book progress bars, "continue reading" cards sorted by what you read last, and author names that open a page with all of their books.
+- 🖼️ **A real shelf** — cover thumbnails, per-book progress bars, "continue reading" cards sorted by what you read last, author names that open a page with all of their books, and instant search by title or author.
 - 🔒 **100% local & offline** — the server binds to your LAN; nothing leaves your network. Progress lives in your browser's `localStorage`.
 - ✍️ **Hand-editable everything** — chapters are Markdown, metadata is JSON. Fix a bad conversion with any editor; changes appear on the next page load.
 - 🪶 **Tiny footprint** — one Node dependency (`marked`) and three Python converters. No database, no build step, no framework.

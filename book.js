@@ -109,15 +109,24 @@ function authorSlug(name) {
     .replace(/^-+|-+$/g, '');
 }
 
-function authorHref(name) {
-  return `/author/${authorSlug(name)}`;
+function authorNames(book) {
+  const names = Array.isArray(book.authors) ? book.authors.filter(Boolean) : [];
+  const transliterated = Array.isArray(book.authorsTransliterated) ? book.authorsTransliterated : [];
+  return names.map((name, index) => {
+    const latin = typeof transliterated[index] === 'string' ? transliterated[index].trim() : '';
+    return { name, latin: latin || name };
+  });
+}
+
+function authorHref(name, latin) {
+  return `/author/${authorSlug(latin || name)}`;
 }
 
 function authorLine(book) {
-  const authors = Array.isArray(book.authors) ? book.authors.filter(Boolean) : [];
+  const authors = authorNames(book);
   const names = authors.length
     ? authors
-      .map(name => `<a class="author-link" href="${esc(authorHref(name))}">${esc(name)}</a>`)
+      .map(author => `<a class="author-link" href="${esc(authorHref(author.name, author.latin))}">${esc(author.name)}</a>`)
       .join(', ')
     : 'Unknown author';
   const year = book.year ? ` · ${esc(book.year)}` : '';
@@ -129,10 +138,9 @@ function findAuthor(slug) {
   let name = null;
   const books = [];
   for (const book of listBooks()) {
-    const authors = Array.isArray(book.authors) ? book.authors.filter(Boolean) : [];
-    const matched = authors.find(author => authorSlug(author) === slug);
+    const matched = authorNames(book).find(author => authorSlug(author.latin) === slug);
     if (!matched) continue;
-    if (!name) name = matched;
+    if (!name) name = matched.name;
     books.push(book);
   }
   return name ? { name, books } : null;
@@ -146,7 +154,13 @@ function renderBookCards(books) {
     const coverHtml = cover
       ? `<img src="${esc(cover)}" alt="Cover of ${esc(book.title)}" loading="lazy">`
       : `<span class="cover-fallback" aria-hidden="true">${esc(book.title.slice(0, 1))}</span>`;
-    return `      <div class="book-card" data-book-id="${esc(book.id)}" data-chapter-count="${book.chapters.length}" data-chapters="${esc(JSON.stringify(book.chapters.map(chapter => chapter.id)))}">
+    const searchText = [
+      book.title,
+      book.titleTransliterated,
+      book.titleEnglish,
+      ...authorNames(book).flatMap(author => [author.name, author.latin]),
+    ].filter(Boolean).join(' ');
+    return `      <div class="book-card" data-book-id="${esc(book.id)}" data-search="${esc(searchText)}" data-chapter-count="${book.chapters.length}" data-chapters="${esc(JSON.stringify(book.chapters.map(chapter => chapter.id)))}">
         <a class="book-link" href="/${esc(book.id)}/" aria-label="Open ${esc(book.title)}"></a>
         <div class="book-cover">${coverHtml}</div>
         <div class="book-info">
@@ -181,9 +195,11 @@ function renderCatalog(books) {
   <header class="catalog-header">
     <h1>Library</h1>
     <p class="catalog-subtitle">${books.length} book${books.length === 1 ? '' : 's'} on the shelf</p>
+    <input type="search" id="book-search" class="book-search" placeholder="Search by title or author" aria-label="Search books by title or author" autocomplete="off" spellcheck="false">
   </header>
   <main class="catalog-main">
       ${body}
+      <p class="search-empty" id="search-empty" role="status" hidden>No books match your search.</p>
   </main>
   <script src="${assetHref('app.js')}"></script>
 </body>
@@ -263,6 +279,7 @@ function renderReaderPage(book, chapter, index, markdown, options = {}) {
   <div class="layout">
     <label for="sidebar-toggle" class="hamburger" aria-label="Toggle chapters">☰</label>
     <aside class="sidebar">
+      <label for="sidebar-toggle" class="sidebar-close" aria-label="Close chapters">✕</label>
 ${renderSidebar(book, chapter.id)}
     </aside>
     <main>

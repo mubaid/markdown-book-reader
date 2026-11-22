@@ -278,6 +278,25 @@
     decorated
       .sort((a, b) => (b.updatedAt - a.updatedAt) || (a.position - b.position))
       .forEach(item => grid.appendChild(item.card));
+
+    const searchInput = document.getElementById('book-search');
+    if (!searchInput) return;
+    const emptyMessage = document.getElementById('search-empty');
+
+    function applyFilter() {
+      const query = searchInput.value.trim().toLowerCase();
+      let visible = 0;
+      for (const card of cards) {
+        const haystack = (card.dataset.search || '').toLowerCase();
+        const match = !query || haystack.includes(query);
+        card.hidden = !match;
+        if (match) visible += 1;
+      }
+      if (emptyMessage) emptyMessage.hidden = !(query && visible === 0);
+    }
+
+    searchInput.addEventListener('input', applyFilter);
+    applyFilter();
   }
 
   function init() {
