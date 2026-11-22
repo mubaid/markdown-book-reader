@@ -1,0 +1,246 @@
+#!/usr/bin/env node
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { spawnSync } = require('child_process');
+
+const ROOT = path.join(__dirname, '..');
+const BOOKS_DIR = path.join(ROOT, 'books');
+const LIBRARY_DIR = path.join(ROOT, 'library');
+const SOURCE_EXT = /\.(epub|pdf|md)$/i;
+
+const USAGE = `Usage:
+  node tools/convert                     convert everything in books/
+  node tools/convert --force             reconvert existing books
+  node tools/convert books/foo.epub      convert one file
+  node tools/convert books/my-novel/     convert a folder of .md chapters
+Options:
+  --force       overwrite library output that already exists
+  --no-images   skip image extraction/copying
+  --no-cover    skip cover extraction/rendering/detection
+  --help        show this help
+
+Markdown layouts:
+  books/novel.md           one file, split on its #/## headings
+  books/novel/01.md ...    one folder, each .md file is a chapter`;
+
+function slugify(text) {
+  return String(text || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .slice(0, 60)
+    .replace(/^-+|-+$/g, '') || 'book';
+}
+
+function parseArgs(argv) {
+  const options = { force: false, noImages: false, noCover: false, files: [], help: false };
+  for (const arg of argv) {
+    if (arg === '--force') options.force = true;
+    else if (arg === '--no-images') options.noImages = true;
+    else if (arg === '--no-cover') options.noCover = true;
+    else if (arg === '--help' || arg === '-h') options.help = true;
+    else if (arg.startsWith('-')) throw new Error(`unknown option: ${arg}`);
+    else options.files.push(arg);
+  }
+  return options;
+}
+
+function readBookJson(libraryId) {
+  const filePath = path.join(LIBRARY_DIR, libraryId, 'book.json');
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+function labelFor(source) {
+  const rel = path.relative(BOOKS_DIR, source);
+  return rel.startsWith('..') ? path.basename(source) : rel.split(path.sep).join('/');
+}
+
+function bookBaseName(source) {
+  const stat = fs.statSync(source);
+  if (stat.isDirectory()) return path.basename(source);
+  return path.basename(source, path.extname(source));
+}
+
+function bookIdFor(source, sourceLabel) {
+  const base = bookBaseName(source);
+  let id = slugify(base === 'books' ? 'library' : base);
+  const existing = readBookJson(id);
+  if (existing && existing.source && existing.source.file && existing.source.file !== sourceLabel) {
+    const suffix = crypto.createHash('sha1').update(sourceLabel).digest('hex').slice(0, 5);
+    id = `${id}-${suffix}`;
+  }
+  return id;
+}
+
+function pythonBin() {
+  const venv = path.join(ROOT, '.venv', 'bin', 'python');
+  if (fs.existsSync(venv)) return venv;
+  console.warn('warning: .venv not found, falling back to python3 (run npm run setup:python)');
+  return 'python3';
+}
+
+function listDirectory(dir) {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+function directMdFiles(dir) {
+  return listDirectory(dir)
+    .filter(entry => entry.isFile() && /\.md$/i.test(entry.name) && !entry.name.startsWith('.'))
+    .map(entry => path.join(dir, entry.name));
+}
+
+/**
+ * Returns source paths. A subdirectory with 2+ direct .md files is one book
+ * (each file a chapter); loose .md files are one book each.
+ */
+function findSources(dir, isRoot = false) {
+  const entries = listDirectory(dir);
+  const mdFiles = [];
+  const otherFiles = [];
+  const subdirs = [];
+
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) subdirs.push(full);
+    else if (entry.isFile() && SOURCE_EXT.test(entry.name)) {
+      if (/\.md$/i.test(entry.name)) mdFiles.push(full);
+      else otherFiles.push(full);
+    }
+  }
+
+  if (!isRoot && mdFiles.length >= 2) {
+    if (otherFiles.length > 0) {
+      console.warn(`warning: ${path.relative(ROOT, dir)} is treated as one Markdown book; ` +
+        `ignoring ${otherFiles.length} non-Markdown file(s) inside it. Move them elsewhere to convert them.`);
+    }
+    return [dir];
+  }
+
+  const found = [...mdFiles, ...otherFiles];
+  for (const subdir of subdirs) {
+    found.push(...findSources(subdir, false));
+  }
+  return found;
+}
+
+function sourceKind(source) {
+  const stat = fs.statSync(source);
+  if (stat.isDirectory()) return 'markdown-folder';
+  const ext = path.extname(source).toLowerCase();
+  if (ext === '.epub') return 'epub';
+  if (ext === '.pdf') return 'pdf';
+  if (ext === '.md') return 'markdown';
+  return null;
+}
+
+function scriptFor(kind) {
+  if (kind === 'epub') return 'convert_epub.py';
+  if (kind === 'pdf') return 'convert_pdf.py';
+  if (kind === 'markdown' || kind === 'markdown-folder') return 'convert_md.py';
+  return null;
+}
+
+function convertSource(source, options) {
+  const kind = sourceKind(source);
+  const scriptName = scriptFor(kind);
+  if (!scriptName) {
+    console.error(`skip    ${source}: unsupported source type`);
+    return 'skipped';
+  }
+
+  const sourceLabel = labelFor(source);
+  const id = bookIdFor(source, sourceLabel);
+  const outDir = path.join(LIBRARY_DIR, id);
+
+  if (!options.force && fs.existsSync(path.join(outDir, 'book.json'))) {
+    console.log(`skip    ${sourceLabel} (already converted; use --force)`);
+    return 'skipped';
+  }
+
+  const args = [
+    path.join(__dirname, scriptName),
+    source,
+    '--out', outDir,
+    '--id', id,
+    '--source-file', sourceLabel,
+  ];
+  if (options.force) args.push('--force');
+  if (options.noImages) args.push('--no-images');
+  if (options.noCover) args.push('--no-cover');
+
+  console.log(`convert ${sourceLabel} (${kind}) -> library/${id}/`);
+  const result = spawnSync(pythonBin(), args, { stdio: 'inherit', cwd: ROOT });
+  if (result.error) {
+    console.error(`fail    ${sourceLabel}: ${result.error.message}`);
+    return 'failed';
+  }
+  if (result.status !== 0) {
+    console.error(`fail    ${sourceLabel} (exit ${result.status})`);
+    return 'failed';
+  }
+  return 'converted';
+}
+
+function main() {
+  let options;
+  try {
+    options = parseArgs(process.argv.slice(2));
+  } catch (error) {
+    console.error(error.message);
+    console.log(USAGE);
+    return 1;
+  }
+
+  if (options.help) {
+    console.log(USAGE);
+    return 0;
+  }
+
+  fs.mkdirSync(BOOKS_DIR, { recursive: true });
+  fs.mkdirSync(LIBRARY_DIR, { recursive: true });
+
+  let sources;
+  if (options.files.length > 0) {
+    sources = options.files.map(file => path.resolve(file));
+  } else {
+    sources = findSources(BOOKS_DIR, true);
+  }
+
+  sources.sort((a, b) => labelFor(a).localeCompare(labelFor(b)));
+
+  if (sources.length === 0) {
+    console.log('No .epub, .pdf, or .md sources found. Drop books into books/ and run again.');
+    return 0;
+  }
+
+  const summary = { converted: 0, skipped: 0, failed: 0 };
+  for (const source of sources) {
+    if (!fs.existsSync(source)) {
+      console.error(`fail    ${source}: not found`);
+      summary.failed += 1;
+      continue;
+    }
+    summary[convertSource(source, options)] += 1;
+  }
+
+  console.log(
+    `\nDone: ${summary.converted} converted, ${summary.skipped} skipped, ${summary.failed} failed.`
+  );
+  return summary.failed > 0 ? 1 : 0;
+}
+
+process.exit(main());

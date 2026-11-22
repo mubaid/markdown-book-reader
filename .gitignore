@@ -1,0 +1,9 @@
+node_modules/
+.venv/
+library/*
+!library/.gitkeep
+books/*
+!books/.gitkeep
+__pycache__/
+*.pyc
+.DS_Store

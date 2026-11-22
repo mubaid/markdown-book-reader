@@ -1,0 +1,33 @@
+{
+  "name": "ebook-reader",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local PDF/EPUB to Markdown library with a mobile-friendly reader",
+  "license": "MIT",
+  "author": "Mohamed Ubaid",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mubaid/ebook-reader.git"
+  },
+  "keywords": [
+    "ebook",
+    "epub",
+    "pdf",
+    "markdown",
+    "reader",
+    "self-hosted",
+    "offline"
+  ],
+  "type": "commonjs",
+  "scripts": {
+    "convert": "node tools/convert",
+    "serve": "node server.js",
+    "setup:python": "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "marked": "^18.2.1"
+  }
+}
