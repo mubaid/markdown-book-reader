@@ -3,6 +3,12 @@
 (function () {
   const PROGRESS_PREFIX = 'markdown-book-reader:progress:';
 
+  // Service workers (and therefore offline caching) only exist in secure
+  // contexts: HTTPS or localhost. Plain-LAN http gets no offline support.
+  const SW_AVAILABLE = 'serviceWorker' in navigator
+    && (window.isSecureContext
+      || ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname));
+
   function safeParse(value) {
     try {
       return JSON.parse(value);
@@ -139,6 +145,22 @@
     let suppressSave = !isEntry && saved && saved.chapterId === chapterId;
     let restoredAt = 0;
 
+    // URL navigation convention: ?goto=<anchor> beats saved-progress restore,
+    // but only when the anchor actually exists — a stale link must not wipe
+    // the saved position.
+    const params = new URLSearchParams(window.location.search);
+    const gotoAnchor = params.get('goto');
+    let jumped = false;
+    if (gotoAnchor) {
+      const target = elementForAnchor(gotoAnchor);
+      if (target) {
+        jumped = true;
+        userMoved = true;
+        suppressSave = false;
+        target.scrollIntoView({ block: 'start' });
+      }
+    }
+
     function maxScroll() {
       return Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
     }
@@ -229,20 +251,65 @@
       if (document.visibilityState === 'hidden') persist();
     });
 
-    // Center the active chapter in the sidebar without touching page scroll.
+    // After a ?goto= jump, persist once so progress follows the jump.
+    if (jumped) persist();
+
+    // Center the active chapter in the sidebar (Contents tab) without touching page scroll.
     const sidebar = document.querySelector('.sidebar');
-    const activeLink = document.querySelector('.sidebar nav a.active');
+    const activeLink = document.querySelector('#sidebar-tab-contents a.active');
     if (sidebar && activeLink) {
       const target = activeLink.offsetTop - sidebar.clientHeight / 2;
       sidebar.scrollTop = Math.max(0, target);
     }
+
+    // Core API for annotations.js / search.js / tts.js (script order guarantees this exists).
+    window.MBR = {
+      bookId,
+      chapterId,
+      chapterIndex,
+      chapters,
+      blocks,
+      currentTopBlock: () => currentTopBlock(blocks),
+      normalize,
+      fnv1a,
+      goToAnchor(anchor) {
+        const target = elementForAnchor(anchor);
+        if (!target) return false;
+        target.scrollIntoView({ block: 'start' });
+        userMoved = true;
+        suppressSave = false;
+        persist();
+        return true;
+      },
+    };
   }
 
   // ── Catalog ─────────────────────────────────────────────────────
 
+  const TAGS_KEY = 'markdown-book-reader:tags';
+
+  function loadTags() {
+    try {
+      const parsed = safeParse(localStorage.getItem(TAGS_KEY));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveTags(tags) {
+    try {
+      localStorage.setItem(TAGS_KEY, JSON.stringify(tags));
+    } catch {
+      /* storage blocked: tags work for this session only */
+    }
+  }
+
   function initCatalog() {
     const grid = document.getElementById('book-grid');
     if (!grid) return;
+
+    let tags = loadTags();
 
     const cards = Array.from(grid.querySelectorAll('.book-card'));
     const decorated = cards.map((card, position) => {
@@ -251,13 +318,15 @@
       const chapters = chapterListFrom(card);
       const progress = loadProgress(bookId);
       let updatedAt = 0;
+      let fraction = 0;
 
       if (progress) {
         updatedAt = Number(progress.updatedAt) || 0;
-        const bookFraction = typeof progress.bookFraction === 'number'
+        fraction = typeof progress.bookFraction === 'number'
           ? progress.bookFraction
           : ((Number(progress.chapterIndex) || 0) + clamp01(progress.chapterFraction)) / chapterCount;
-        const percent = Math.round(clamp01(bookFraction) * 100);
+        fraction = clamp01(fraction);
+        const percent = Math.round(fraction * 100);
 
         const bar = card.querySelector('[data-progress-bar]');
         if (bar) bar.style.width = `${percent}%`;
@@ -272,36 +341,327 @@
         }
       }
 
-      return { card, updatedAt, position };
+      return {
+        card,
+        bookId,
+        position,
+        updatedAt,
+        fraction,
+        hasProgress: Boolean(progress),
+        title: (card.querySelector('h2')?.textContent || '').trim(),
+        author: (card.querySelector('.book-authors .author-link')?.textContent || '').trim(),
+        convertedAt: card.dataset.convertedAt || '',
+      };
     });
 
-    decorated
-      .sort((a, b) => (b.updatedAt - a.updatedAt) || (a.position - b.position))
-      .forEach(item => grid.appendChild(item.card));
+    // ── Status, tags, filter state ──────────────────────────────
 
-    const searchInput = document.getElementById('book-search');
-    if (!searchInput) return;
-    const emptyMessage = document.getElementById('search-empty');
+    const STATUSES = [
+      { id: 'all', label: 'All' },
+      { id: 'unread', label: 'Unread' },
+      { id: 'reading', label: 'Reading' },
+      { id: 'finished', label: 'Finished' },
+    ];
 
-    function applyFilter() {
-      const query = searchInput.value.trim().toLowerCase();
-      let visible = 0;
-      for (const card of cards) {
-        const haystack = (card.dataset.search || '').toLowerCase();
-        const match = !query || haystack.includes(query);
-        card.hidden = !match;
-        if (match) visible += 1;
-      }
-      if (emptyMessage) emptyMessage.hidden = !(query && visible === 0);
+    const SORTS = [
+      { id: 'recent', label: 'Recently read' },
+      { id: 'title', label: 'Title' },
+      { id: 'author', label: 'Author' },
+      { id: 'added', label: 'Recently added' },
+    ];
+
+    const state = { status: 'all', selectedTags: [], sort: 'recent', query: '' };
+
+    function statusOf(item) {
+      if (!item.hasProgress) return 'unread';
+      if (item.fraction >= 0.99) return 'finished';
+      return 'reading';
     }
 
-    searchInput.addEventListener('input', applyFilter);
-    applyFilter();
+    function tagsOf(bookId) {
+      const list = tags[bookId];
+      return Array.isArray(list) ? list : [];
+    }
+
+    function usedTags() {
+      const set = new Set();
+      for (const item of decorated) {
+        for (const tag of tagsOf(item.bookId)) set.add(tag);
+      }
+      return Array.from(set).sort();
+    }
+
+    // ── Filter bar ──────────────────────────────────────────────
+
+    const filterBar = document.getElementById('filter-bar');
+    let countEl = null;
+
+    function renderFilterBar() {
+      if (!filterBar) return;
+      filterBar.replaceChildren();
+
+      const statusRow = document.createElement('div');
+      statusRow.className = 'chip-row';
+      for (const status of STATUSES) {
+        statusRow.appendChild(chip(status.label, `status:${status.id}`, state.status === status.id));
+      }
+      filterBar.appendChild(statusRow);
+
+      const used = usedTags();
+      if (used.length > 0) {
+        const tagRow = document.createElement('div');
+        tagRow.className = 'chip-row';
+        for (const tag of used) {
+          tagRow.appendChild(chip(`#${tag}`, `tag:${tag}`, state.selectedTags.includes(tag)));
+        }
+        filterBar.appendChild(tagRow);
+      }
+
+      const controls = document.createElement('div');
+      controls.className = 'filter-controls';
+      const sortSelect = document.createElement('select');
+      sortSelect.className = 'filter-sort';
+      sortSelect.setAttribute('aria-label', 'Sort books');
+      for (const sort of SORTS) {
+        const option = document.createElement('option');
+        option.value = sort.id;
+        option.textContent = sort.label;
+        if (sort.id === state.sort) option.selected = true;
+        sortSelect.appendChild(option);
+      }
+      sortSelect.addEventListener('change', () => {
+        state.sort = sortSelect.value;
+        applyAll();
+      });
+      controls.appendChild(sortSelect);
+      countEl = document.createElement('span');
+      countEl.className = 'filter-count';
+      controls.appendChild(countEl);
+      filterBar.appendChild(controls);
+
+      filterBar.hidden = false;
+    }
+
+    function chip(label, key, selected) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'chip' + (selected ? ' selected' : '');
+      button.textContent = label;
+      button.addEventListener('click', () => {
+        if (key.startsWith('status:')) {
+          state.status = key.slice(7);
+        } else {
+          const tag = key.slice(4);
+          state.selectedTags = state.selectedTags.includes(tag)
+            ? state.selectedTags.filter(item => item !== tag)
+            : state.selectedTags.concat(tag);
+        }
+        renderFilterBar();
+        applyAll();
+      });
+      return button;
+    }
+
+    // ── Filtering + sorting ─────────────────────────────────────
+
+    function matches(item) {
+      const query = state.query;
+      const haystack = `${item.card.dataset.search || ''} ${tagsOf(item.bookId).join(' ')}`.toLowerCase();
+      if (query && !haystack.includes(query)) return false;
+      if (state.status !== 'all' && statusOf(item) !== state.status) return false;
+      for (const tag of state.selectedTags) {
+        if (!tagsOf(item.bookId).includes(tag)) return false;
+      }
+      return true;
+    }
+
+    function sortItems() {
+      const items = decorated.slice();
+      if (state.sort === 'title') {
+        items.sort((a, b) => a.title.localeCompare(b.title));
+      } else if (state.sort === 'author') {
+        items.sort((a, b) => (a.author.localeCompare(b.author)) || a.title.localeCompare(b.title));
+      } else if (state.sort === 'added') {
+        items.sort((a, b) => String(b.convertedAt).localeCompare(String(a.convertedAt)) || (a.position - b.position));
+      } else {
+        items.sort((a, b) => (b.updatedAt - a.updatedAt) || (a.position - b.position));
+      }
+      for (const item of items) grid.appendChild(item.card);
+    }
+
+    function updateCardTags(item) {
+      const container = item.card.querySelector('[data-book-tags]');
+      if (!container) return;
+      container.replaceChildren();
+      for (const tag of tagsOf(item.bookId)) {
+        const chipEl = document.createElement('span');
+        chipEl.className = 'card-tag';
+        chipEl.textContent = tag;
+        container.appendChild(chipEl);
+      }
+    }
+
+    const searchInput = document.getElementById('book-search');
+    const emptyMessage = document.getElementById('search-empty');
+
+    function applyAll() {
+      sortItems();
+      let visible = 0;
+      for (const item of decorated) {
+        const match = matches(item);
+        item.card.hidden = !match;
+        if (match) visible += 1;
+      }
+      if (countEl) countEl.textContent = `${visible} of ${decorated.length} books`;
+      if (emptyMessage) {
+        const filtering = Boolean(state.query) || state.status !== 'all' || state.selectedTags.length > 0;
+        emptyMessage.hidden = !filtering || visible > 0;
+        emptyMessage.textContent = state.query ? 'No books match your search.' : 'No books match these filters.';
+      }
+    }
+
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        state.query = searchInput.value.trim().toLowerCase();
+        applyAll();
+      });
+    }
+
+    // ── Tag editor popover ──────────────────────────────────────
+
+    let popover = null;
+    let popoverItem = null;
+
+    function closePopover() {
+      if (popover) popover.remove();
+      popover = null;
+      popoverItem = null;
+    }
+
+    function openPopover(item, button) {
+      closePopover();
+      popoverItem = item;
+      popover = document.createElement('div');
+      popover.className = 'tag-popover';
+      popover.setAttribute('role', 'dialog');
+      popover.setAttribute('aria-label', `Tags for ${item.title}`);
+
+      const list = document.createElement('div');
+      list.className = 'tag-popover-chips';
+      const current = tagsOf(item.bookId);
+      if (current.length === 0) {
+        const hint = document.createElement('span');
+        hint.className = 'tag-popover-empty';
+        hint.textContent = 'No tags yet';
+        list.appendChild(hint);
+      }
+      for (const tag of current) {
+        const chipEl = document.createElement('span');
+        chipEl.className = 'popover-chip';
+        const labelEl = document.createElement('span');
+        labelEl.textContent = tag;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.setAttribute('aria-label', `Remove tag ${tag}`);
+        remove.textContent = '✕';
+        remove.addEventListener('click', () => {
+          const next = tagsOf(item.bookId).filter(value => value !== tag);
+          if (next.length) tags[item.bookId] = next;
+          else delete tags[item.bookId];
+          saveTags(tags);
+          updateCardTags(item);
+          openPopover(item, button);
+          renderFilterBar();
+          applyAll();
+        });
+        chipEl.appendChild(labelEl);
+        chipEl.appendChild(remove);
+        list.appendChild(chipEl);
+      }
+
+      const addInput = document.createElement('input');
+      addInput.type = 'text';
+      addInput.className = 'tag-add';
+      addInput.placeholder = 'Add tag, press Enter';
+      addInput.maxLength = 24;
+      addInput.addEventListener('keydown', event => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        const value = addInput.value.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 24);
+        if (!value || tagsOf(item.bookId).includes(value)) return;
+        tags[item.bookId] = tagsOf(item.bookId).concat(value);
+        saveTags(tags);
+        addInput.value = '';
+        updateCardTags(item);
+        openPopover(item, button);
+        popover.querySelector('.tag-add').focus();
+        renderFilterBar();
+        applyAll();
+      });
+
+      popover.appendChild(list);
+      popover.appendChild(addInput);
+      document.body.appendChild(popover);
+
+      const rect = button.getBoundingClientRect();
+      const width = popover.offsetWidth || 220;
+      const height = popover.offsetHeight || 160;
+      let left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+      let top = rect.bottom + 6;
+      if (top + height > window.innerHeight - 8) top = Math.max(8, rect.top - height - 6);
+      popover.style.left = `${left}px`;
+      popover.style.top = `${top}px`;
+    }
+
+    document.addEventListener('pointerdown', event => {
+      if (!popover) return;
+      if (!event.target.closest('.tag-popover') && !event.target.closest('[data-tag-toggle]')) closePopover();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') closePopover();
+    });
+    window.addEventListener('scroll', closePopover, { passive: true });
+
+    for (const item of decorated) {
+      updateCardTags(item);
+      const button = item.card.querySelector('[data-tag-toggle]');
+      if (button) {
+        button.addEventListener('click', event => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (popover && popoverItem === item) closePopover();
+          else openPopover(item, button);
+        });
+      }
+    }
+
+    renderFilterBar();
+    applyAll();
+
+    // iOS has no install prompt: point at Share → Add to Home Screen once.
+    // Only where offline caching can actually work (secure context), so the
+    // hint never promises offline reading on plain-LAN http.
+    const installHint = document.getElementById('install-hint');
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+      || window.navigator.standalone === true;
+    if (installHint && isIOS && !standalone && SW_AVAILABLE) installHint.hidden = false;
   }
 
   function init() {
     if (document.body.classList.contains('reader')) initReader();
     if (document.body.classList.contains('catalog-page')) initCatalog();
+  }
+
+  // Service worker: only where it can actually work, so no inert registration
+  // on plain-LAN http.
+  if (SW_AVAILABLE) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {
+        /* offline support unavailable; reading works regardless */
+      });
+    });
   }
 
   if (document.readyState === 'loading') {

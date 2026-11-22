@@ -43,13 +43,14 @@ function mimeFor(filePath) {
   return MIME_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
 }
 
-function send(req, res, status, contentType, body, cache = 'no-store') {
+function send(req, res, status, contentType, body, cache = 'no-store', extraHeaders = {}) {
   const payload = Buffer.isBuffer(body) ? body : Buffer.from(String(body), 'utf-8');
   res.writeHead(status, {
     'Content-Type': contentType,
     'Content-Length': payload.length,
     'Cache-Control': cache,
     'X-Content-Type-Options': 'nosniff',
+    ...extraHeaders,
   });
   if (req.method === 'HEAD') res.end();
   else res.end(payload);
@@ -91,11 +92,13 @@ function serveFile(req, res, filePath, cache = 'no-store') {
 }
 
 function serveProjectAsset(req, res, segments) {
-  if (segments.length !== 2 || !isSafeFile(segments[1])) {
+  // /assets/<file> and /assets/<dir>/<file> (icons), each segment validated.
+  const relative = segments.slice(1);
+  if (relative.length === 0 || relative.length > 2 || !relative.every(isSafeFile)) {
     notFound(req, res);
     return;
   }
-  const filePath = safeJoin(ASSETS_DIR, segments[1]);
+  const filePath = safeJoin(ASSETS_DIR, relative.join(path.sep));
   if (!filePath) {
     notFound(req, res);
     return;
@@ -118,15 +121,107 @@ function serveBookAsset(req, res, book, segments) {
   serveFile(req, res, filePath, 'public, max-age=86400');
 }
 
+// ── In-book search (GET /api/<bookId>/search?q=) ─────────────────
+//
+// Plain substring scan, linear over chapter Markdown files. No index, no cache:
+// the library is small Markdown files and this is milliseconds even on the
+// 4-core box. User input is never compiled into a regex, so regex
+// metacharacters in q are matched literally.
+//
+// Note on matching: the server matches raw lowercased Markdown; the client
+// marks matches via normalize() (NFKC, punctuation-stripped), so a result may
+// occasionally be marked slightly differently than the snippet. Accepted.
+
+const SEARCH_SNIPPET_RADIUS = 60;
+const SEARCH_MAX_RESULTS = 50;
+
+function buildSnippet(markdown, index, termLength) {
+  const start = Math.max(0, index - SEARCH_SNIPPET_RADIUS);
+  const end = Math.min(markdown.length, index + termLength + SEARCH_SNIPPET_RADIUS);
+  let text = markdown.slice(start, end);
+  // Strip obvious Markdown noise; keep link text.
+  text = text
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^[ \t]*#{1,6}[ \t]*/gm, '')
+    .replace(/~~/g, '')
+    .replace(/[*_`>]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return `${start > 0 ? '…' : ''}${text}${end < markdown.length ? '…' : ''}`;
+}
+
+function searchBook(book, term) {
+  const needle = term.toLowerCase();
+  const results = [];
+  let total = 0;
+  for (let i = 0; i < book.chapters.length && results.length < SEARCH_MAX_RESULTS; i += 1) {
+    const chapter = book.chapters[i];
+    const read = readChapter(book, chapter.id);
+    if (!read) continue;
+    const haystack = read.markdown.toLowerCase();
+    let matchCount = 0;
+    let snippet = '';
+    let from = 0;
+    for (;;) {
+      const index = haystack.indexOf(needle, from);
+      if (index === -1) break;
+      matchCount += 1;
+      if (!snippet) snippet = buildSnippet(read.markdown, index, needle.length);
+      from = index + needle.length;
+    }
+    if (matchCount > 0) {
+      results.push({
+        chapterId: chapter.id,
+        chapterTitle: chapter.title,
+        chapterIndex: i,
+        snippet,
+        matchCount,
+      });
+      total += matchCount;
+    }
+  }
+  return { query: term, total, results };
+}
+
+function sendJson(req, res, status, payload) {
+  send(req, res, status, 'application/json; charset=utf-8', JSON.stringify(payload));
+}
+
+function handleApi(req, res, segments, searchParams) {
+  // Only reserved route so far: /api/<bookId>/search
+  if (segments.length !== 3 || segments[2] !== 'search') {
+    notFound(req, res);
+    return;
+  }
+  const book = readBook(segments[1]);
+  if (!book) {
+    sendJson(req, res, 404, { error: 'Book not found' });
+    return;
+  }
+  const term = String(searchParams.get('q') || '').trim();
+  if (term.length < 2 || term.length > 100) {
+    sendJson(req, res, 400, { error: 'Query must be 2–100 characters' });
+    return;
+  }
+  sendJson(req, res, 200, searchBook(book, term));
+}
+
 function handle(req, res) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     send(req, res, 405, 'text/plain; charset=utf-8', 'Method not allowed');
     return;
   }
 
+  let url;
+  try {
+    url = new URL(req.url, 'http://localhost');
+  } catch {
+    notFound(req, res);
+    return;
+  }
   let pathname;
   try {
-    pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+    pathname = decodeURIComponent(url.pathname);
   } catch {
     notFound(req, res);
     return;
@@ -137,6 +232,28 @@ function handle(req, res) {
 
   if (segments.length === 0) {
     html(req, res, 200, renderCatalog(listBooks()));
+    return;
+  }
+
+  // Only the exact search route is reserved; anything else under /api falls
+  // through to normal book routing (a book id of "api" stays reachable).
+  if (segments[0] === 'api' && segments.length === 3 && segments[2] === 'search') {
+    handleApi(req, res, segments, url.searchParams);
+    return;
+  }
+
+  // PWA root files. The SW script itself must never be cached, and
+  // Service-Worker-Allowed lets it control the whole site from the root.
+  if (segments[0] === 'sw.js' && segments.length === 1) {
+    send(req, res, 200, 'application/javascript; charset=utf-8',
+      fs.readFileSync(path.join(__dirname, 'sw.js')), 'no-store',
+      { 'Service-Worker-Allowed': '/' });
+    return;
+  }
+
+  if (segments[0] === 'manifest.webmanifest' && segments.length === 1) {
+    send(req, res, 200, 'application/manifest+json; charset=utf-8',
+      fs.readFileSync(path.join(__dirname, 'manifest.webmanifest')));
     return;
   }
 

@@ -41,6 +41,17 @@ function assetHref(name) {
   }
 }
 
+// FOUC guard: applies theme/font/width settings before first paint.
+// Keep in sync with apply() in assets/settings.js.
+const SETTINGS_BOOTSTRAP = `<script>(function(){try{var raw=localStorage.getItem('markdown-book-reader:settings');var s=raw?JSON.parse(raw):{};var r=document.documentElement;var themes=['auto','light','sepia','dark','oled'];r.dataset.theme=themes.indexOf(s.theme)>=0?s.theme:'auto';r.dataset.font=s.fontFamily==='sans'?'sans':'serif';if(s.fontSize)r.style.setProperty('--reader-font-size',s.fontSize+'px');if(s.contentWidth)r.style.setProperty('--content-max',s.contentWidth+'px');if(s.fontFamily==='sans')r.style.setProperty('--reader-font',"-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif");}catch(e){document.documentElement.dataset.theme='auto';}})();</script>`;
+
+const SETTINGS_BUTTON = '<button class="meta-button" type="button" data-settings-toggle aria-label="Text settings">Aa</button>';
+
+// PWA head links, identical on every page type.
+const PWA_HEAD = '<meta name="theme-color" content="#faf9f6">\n  '
+  + '<link rel="manifest" href="/manifest.webmanifest">\n  '
+  + '<link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">';
+
 function readBook(bookId) {
   if (!isSafeId(bookId)) return null;
   try {
@@ -160,14 +171,18 @@ function renderBookCards(books) {
       book.titleEnglish,
       ...authorNames(book).flatMap(author => [author.name, author.latin]),
     ].filter(Boolean).join(' ');
-    return `      <div class="book-card" data-book-id="${esc(book.id)}" data-search="${esc(searchText)}" data-chapter-count="${book.chapters.length}" data-chapters="${esc(JSON.stringify(book.chapters.map(chapter => chapter.id)))}">
+    return `      <div class="book-card" data-book-id="${esc(book.id)}" data-search="${esc(searchText)}" data-chapter-count="${book.chapters.length}" data-chapters="${esc(JSON.stringify(book.chapters.map(chapter => chapter.id)))}" data-converted-at="${esc(book.convertedAt || '')}">
         <a class="book-link" href="/${esc(book.id)}/" aria-label="Open ${esc(book.title)}"></a>
         <div class="book-cover">${coverHtml}</div>
         <div class="book-info">
           <h2>${esc(book.title)}</h2>
           <p class="book-authors">${authorLine(book)}</p>
           <div class="book-progress" aria-hidden="true"><span data-progress-bar></span></div>
-          <p class="book-status" data-progress-label>Start reading</p>
+          <div class="book-card-footer">
+            <p class="book-status" data-progress-label>Start reading</p>
+            <button type="button" class="tag-button" data-tag-toggle aria-label="Edit tags for ${esc(book.title)}">🏷</button>
+          </div>
+          <div class="book-tags" data-book-tags></div>
         </div>
       </div>`;
   }).join('\n');
@@ -189,18 +204,26 @@ function renderCatalog(books) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Library</title>
+  ${SETTINGS_BOOTSTRAP}
   <link rel="stylesheet" href="${assetHref('style.css')}">
+  ${PWA_HEAD}
 </head>
 <body class="catalog-page">
   <header class="catalog-header">
-    <h1>Library</h1>
+    <div class="catalog-header-row">
+      <h1>Library</h1>
+      ${SETTINGS_BUTTON}
+    </div>
     <p class="catalog-subtitle">${books.length} book${books.length === 1 ? '' : 's'} on the shelf</p>
     <input type="search" id="book-search" class="book-search" placeholder="Search by title or author" aria-label="Search books by title or author" autocomplete="off" spellcheck="false">
+    <div class="filter-bar" id="filter-bar" hidden></div>
   </header>
   <main class="catalog-main">
       ${body}
       <p class="search-empty" id="search-empty" role="status" hidden>No books match your search.</p>
+      <p class="install-hint" id="install-hint" hidden>Want offline reading? On iPhone: Share → Add to Home Screen. Opened chapters keep working without a connection.</p>
   </main>
+  <script src="${assetHref('settings.js')}"></script>
   <script src="${assetHref('app.js')}"></script>
 </body>
 </html>`;
@@ -215,19 +238,28 @@ function renderAuthorPage(author, books) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${esc(author.name)} — Library</title>
+  ${SETTINGS_BOOTSTRAP}
   <link rel="stylesheet" href="${assetHref('style.css')}">
+  ${PWA_HEAD}
 </head>
 <body class="catalog-page">
   <header class="catalog-header">
     <p class="catalog-back"><a href="/">← Library</a></p>
-    <h1>${esc(author.name)}</h1>
+    <div class="catalog-header-row">
+      <h1>${esc(author.name)}</h1>
+      ${SETTINGS_BUTTON}
+    </div>
     <p class="catalog-subtitle">${books.length} book${books.length === 1 ? '' : 's'} in the library</p>
+    <input type="search" id="book-search" class="book-search" placeholder="Search by title or author" aria-label="Search books by title or author" autocomplete="off" spellcheck="false">
+    <div class="filter-bar" id="filter-bar" hidden></div>
   </header>
   <main class="catalog-main">
       <div class="book-grid" id="book-grid">
 ${renderBookCards(books)}
       </div>
+      <p class="search-empty" id="search-empty" role="status" hidden>No books match your search.</p>
   </main>
+  <script src="${assetHref('settings.js')}"></script>
   <script src="${assetHref('app.js')}"></script>
 </body>
 </html>`;
@@ -243,9 +275,21 @@ function renderSidebar(book, activeId) {
 
   return `      <a href="/" class="logo">Library</a>
       <p class="subtitle">${esc(book.title)}<br><span class="sidebar-authors">${authorLine(book)}</span></p>
-      <nav>
+      <div class="sidebar-tabs" role="tablist" aria-label="Sidebar sections">
+        <button type="button" class="sidebar-tab selected" data-sidebar-tab="contents" role="tab" aria-selected="true">Contents</button>
+        <button type="button" class="sidebar-tab" data-sidebar-tab="bookmarks" role="tab" aria-selected="false">Bookmarks</button>
+        <button type="button" class="sidebar-tab" data-sidebar-tab="highlights" role="tab" aria-selected="false">Highlights</button>
+      </div>
+      <nav id="sidebar-tab-contents" role="tabpanel" aria-label="Chapters">
 ${links}
-      </nav>`;
+      </nav>
+      <div id="sidebar-tab-bookmarks" class="annot-pane" role="tabpanel" aria-label="Bookmarks" hidden>
+        <div class="annot-items" id="bookmarks-items"></div>
+      </div>
+      <div id="sidebar-tab-highlights" class="annot-pane" role="tabpanel" aria-label="Highlights" hidden>
+        <button type="button" class="annot-export" data-export-highlights>Export Markdown</button>
+        <div class="annot-items" id="highlights-items"></div>
+      </div>`;
 }
 
 function renderPagination(book, index) {
@@ -270,7 +314,9 @@ function renderReaderPage(book, chapter, index, markdown, options = {}) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${esc(chapter.title)} — ${esc(book.title)}</title>
+  ${SETTINGS_BOOTSTRAP}
   <link rel="stylesheet" href="${assetHref('style.css')}">
+  ${PWA_HEAD}
 </head>
 <body class="reader" data-book-id="${esc(book.id)}" data-chapter-id="${esc(chapter.id)}"
       data-chapter-index="${index}" data-chapter-count="${book.chapters.length}"
@@ -286,6 +332,11 @@ ${renderSidebar(book, chapter.id)}
       <div class="reader-meta">
         <a href="/" class="back-link">← Library</a>
         <span class="chapter-counter">Chapter ${index + 1} of ${book.chapters.length}</span>
+        <span class="reader-actions">
+          <button class="meta-button" type="button" data-bookmark-toggle aria-label="Bookmark this paragraph" aria-pressed="false">🔖</button>
+          <button class="meta-button" type="button" data-search-toggle aria-label="Search this book" aria-expanded="false">🔍</button>
+          ${SETTINGS_BUTTON}
+        </span>
         <span class="reader-progress" data-progress-percent>0%</span>
       </div>
       <article>
@@ -294,7 +345,11 @@ ${renderSidebar(book, chapter.id)}
 ${renderPagination(book, index)}
     </main>
   </div>
+  <script src="${assetHref('settings.js')}"></script>
   <script src="${assetHref('app.js')}"></script>
+  <script src="${assetHref('annotations.js')}"></script>
+  <script src="${assetHref('search.js')}"></script>
+  <script src="${assetHref('tts.js')}"></script>
 </body>
 </html>`;
 }

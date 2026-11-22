@@ -6,9 +6,15 @@
   padding: 0;
 }
 
+/* Theme tokens. Unset data-theme behaves as "auto": light, with the dark
+   media query below applying when the OS prefers dark. The inline bootstrap
+   in book.js sets data-theme explicitly before first paint. */
+
 :root {
   --sidebar-width: 290px;
   --content-max: 720px;
+  --reader-font-size: 19px;
+  --reader-font: Georgia, 'Times New Roman', Times, serif;
   --bg: #faf9f6;
   --bg-card: #fffdf9;
   --bg-sidebar: #f0eeea;
@@ -21,10 +27,18 @@
   --code-bg: #f5f3ef;
   --blockquote-bg: #f8f6f1;
   --shadow: 0 1px 3px rgba(0,0,0,0.06);
+  --hl-yellow: rgba(255, 214, 0, 0.40);
+  --hl-green: rgba(126, 214, 123, 0.45);
+  --hl-blue: rgba(110, 170, 255, 0.40);
+}
+
+:root[data-font="sans"] {
+  --reader-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]),
+  :root[data-theme="auto"] {
     --bg: #1a1a1a;
     --bg-card: #212121;
     --bg-sidebar: #141414;
@@ -37,7 +51,62 @@
     --code-bg: #242424;
     --blockquote-bg: #222;
     --shadow: 0 1px 3px rgba(0,0,0,0.3);
+    --hl-yellow: rgba(255, 214, 0, 0.30);
+    --hl-green: rgba(110, 200, 110, 0.30);
+    --hl-blue: rgba(110, 170, 255, 0.30);
   }
+}
+
+:root[data-theme="light"] {
+  /* Same as the :root defaults above; declared for clarity. */
+}
+
+:root[data-theme="sepia"] {
+  --bg: #f2ead8;
+  --bg-card: #f8f1e3;
+  --bg-sidebar: #eae0c9;
+  --text: #433724;
+  --text-muted: #857455;
+  --accent: #a3690b;
+  --accent-hover: #c07f14;
+  --border: #d8c9a6;
+  --active-bg: #efe2c4;
+  --code-bg: #ece1ca;
+  --blockquote-bg: #ece1ca;
+  --shadow: 0 1px 3px rgba(90, 70, 30, 0.12);
+  --hl-yellow: rgba(255, 200, 40, 0.38);
+  --hl-green: rgba(140, 190, 90, 0.40);
+  --hl-blue: rgba(110, 170, 255, 0.35);
+}
+
+:root[data-theme="dark"],
+:root[data-theme="oled"] {
+  --bg: #1a1a1a;
+  --bg-card: #212121;
+  --bg-sidebar: #141414;
+  --text: #e0ddd8;
+  --text-muted: #8a8a8a;
+  --accent: #d4a017;
+  --accent-hover: #f0c040;
+  --border: #333;
+  --active-bg: #2a2418;
+  --code-bg: #242424;
+  --blockquote-bg: #222;
+  --shadow: 0 1px 3px rgba(0,0,0,0.3);
+  --hl-yellow: rgba(255, 214, 0, 0.30);
+  --hl-green: rgba(110, 200, 110, 0.30);
+  --hl-blue: rgba(110, 170, 255, 0.30);
+}
+
+:root[data-theme="oled"] {
+  --bg: #000;
+  --bg-card: #0a0a0a;
+  --bg-sidebar: #050505;
+  --border: #262626;
+  --code-bg: #101010;
+  --blockquote-bg: #141414;
+  --active-bg: #1d1a12;
+  --shadow: 0 1px 3px rgba(0,0,0,0.6);
 }
 
 html {
@@ -213,6 +282,7 @@ article {
   max-width: var(--content-max);
   margin: 0 auto;
   overflow-wrap: break-word;
+  font-family: var(--reader-font);
 }
 
 article [data-anchor] {
@@ -250,7 +320,7 @@ article h4 {
 
 article p {
   margin-bottom: 1.25rem;
-  font-size: 1.05rem;
+  font-size: var(--reader-font-size);
 }
 
 article a {
@@ -278,6 +348,7 @@ article ul, article ol {
 
 article li {
   margin-bottom: 0.35rem;
+  font-size: var(--reader-font-size);
 }
 
 article blockquote {
@@ -635,6 +706,17 @@ article th {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
 }
 
+.install-hint {
+  margin-top: 2.5rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.install-hint[hidden] {
+  display: none;
+}
+
 .error-page {
   max-width: 600px;
   margin: 0 auto;
@@ -645,6 +727,753 @@ article th {
 .error-page h1 {
   font-family: Georgia, 'Times New Roman', Times, serif;
   margin-bottom: 1rem;
+}
+
+/* ── Meta row buttons ──────────────────────────────────────────── */
+
+.meta-button {
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--text);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.meta-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.meta-button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--active-bg);
+}
+
+.reader-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.catalog-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.catalog-header-row .meta-button {
+  flex: 0 0 auto;
+  margin-top: 0.4rem;
+}
+
+/* ── Reader panels (settings, search) ──────────────────────────── */
+
+.panel-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 300;
+}
+
+.reader-panel {
+  position: fixed;
+  top: 3.5rem;
+  right: 1rem;
+  z-index: 310;
+  width: min(340px, calc(100vw - 2rem));
+  max-height: calc(100vh - 5rem);
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: var(--text);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+}
+
+.panel-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.panel-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.2rem;
+}
+
+.panel-close:hover {
+  color: var(--accent);
+}
+
+.panel-body {
+  padding: 0.75rem 1rem 1rem;
+}
+
+.panel-group {
+  margin-bottom: 1.1rem;
+}
+
+.panel-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+
+.control-value {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-slider {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.panel-select {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.theme-swatches {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.theme-swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.15rem;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+.swatch-circle {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--swatch-bg);
+  border: 2px solid var(--border);
+}
+
+.theme-swatch.selected .swatch-circle {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(184, 134, 11, 0.25);
+}
+
+.theme-swatch:hover .swatch-label {
+  color: var(--accent);
+}
+
+.segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.segment {
+  flex: 1;
+  padding: 0.4rem;
+  font-size: 0.82rem;
+  background: var(--bg);
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.segment.selected {
+  background: var(--active-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.panel-reset {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+/* ── Highlights & marks ──────────────────────────────────────── */
+
+mark.hl {
+  background: var(--hl-yellow);
+  color: inherit;
+  padding: 0.05em 0;
+  border-radius: 2px;
+}
+
+mark.hl-green { background: var(--hl-green); }
+mark.hl-blue { background: var(--hl-blue); }
+
+.hl-toolbar {
+  position: fixed;
+  z-index: 320;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.55rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.22);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 0.78rem;
+}
+
+.hl-toolbar[hidden] {
+  display: none;
+}
+
+.hl-toolbar button:not([data-color]) {
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+  border-radius: 6px;
+}
+
+.hl-toolbar button:not([data-color]):hover {
+  background: var(--active-bg);
+  color: var(--accent);
+}
+
+.hl-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
+.hl-dot-yellow { background: #ffd600; }
+.hl-dot-green { background: #7ed67b; }
+.hl-dot-blue { background: #6eaaff; }
+
+.hl-dot.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(184, 134, 11, 0.3);
+}
+
+/* ── Sidebar tabs & annotation lists ─────────────────────────── */
+
+.sidebar-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-tab {
+  flex: 1;
+  padding: 0.4rem 0.2rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.sidebar-tab.selected {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.annot-pane[hidden] {
+  display: none;
+}
+
+.annot-export {
+  width: 100%;
+  margin-bottom: 0.75rem;
+  padding: 0.45rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.annot-export:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.annot-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: 0.45rem 0.4rem;
+  border-radius: 6px;
+  line-height: 1.4;
+}
+
+.annot-item:hover {
+  background: var(--active-bg);
+}
+
+.annot-item.stale .annot-label {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.annot-jump {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+
+.annot-jump:hover .annot-label {
+  color: var(--accent);
+}
+
+.annot-jump .hl-dot {
+  margin-top: 0.25rem;
+  width: 10px;
+  height: 10px;
+}
+
+.annot-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.annot-delete {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0.1rem 0.25rem;
+  flex: 0 0 auto;
+}
+
+.annot-delete:hover {
+  color: var(--accent);
+}
+
+.annot-note {
+  flex: 1 1 100%;
+  margin-top: 0.3rem;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  resize: vertical;
+}
+
+.annot-note:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.annot-empty {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  padding: 0.5rem 0.4rem;
+}
+
+/* ── Toast ───────────────────────────────────────────────────── */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 2rem;
+  transform: translate(-50%, 20px);
+  z-index: 400;
+  padding: 0.6rem 1.1rem;
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 0.82rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  max-width: min(90vw, 420px);
+  text-align: center;
+}
+
+.toast.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* ── In-book search ──────────────────────────────────────────── */
+
+mark.search-hit {
+  background: rgba(212, 160, 23, 0.45);
+  color: inherit;
+  border-radius: 2px;
+}
+
+:root[data-theme="light"] mark.search-hit,
+:root[data-theme="sepia"] mark.search-hit {
+  background: rgba(212, 160, 23, 0.35);
+}
+
+.search-input {
+  width: 100%;
+  padding: 0.55rem 0.8rem;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(184, 134, 11, 0.18);
+}
+
+.search-summary,
+.search-empty-hint {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  margin-bottom: 0.5rem;
+}
+
+.search-result {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.1rem 0.5rem;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border);
+  padding: 0.55rem 0.3rem;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.search-result:hover {
+  background: var(--active-bg);
+}
+
+.search-result-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.search-result-snippet {
+  grid-column: 1 / 2;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.search-result-count {
+  grid-row: 1 / 3;
+  align-self: center;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.search-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  z-index: 250;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0.9rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.search-bar[hidden] {
+  display: none;
+}
+
+.search-bar-clear {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* ── Read-aloud ──────────────────────────────────────────────── */
+
+.tts-active {
+  background: var(--active-bg);
+  border-radius: 6px;
+  box-shadow: 0 0 0 6px var(--active-bg);
+}
+
+.tts-help {
+  max-width: var(--content-max);
+  margin: 1.5rem auto 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.tts-help[hidden] {
+  display: none;
+}
+
+/* ── Shelf filters & tags ────────────────────────────────────── */
+
+.filter-bar {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.filter-bar[hidden] {
+  display: none;
+}
+
+.chip-row {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.chip {
+  padding: 0.3rem 0.8rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.chip.selected {
+  background: var(--active-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.filter-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.filter-sort {
+  padding: 0.35rem 0.6rem;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--text);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.filter-count {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.book-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.tag-button {
+  position: relative;
+  z-index: 2;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.25rem 0.35rem;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.tag-button:hover {
+  border-color: var(--accent);
+  opacity: 1;
+}
+
+.book-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+
+.book-tags:empty {
+  display: none;
+}
+
+.card-tag {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.08rem 0.5rem;
+}
+
+.tag-popover {
+  position: fixed;
+  z-index: 330;
+  width: min(260px, calc(100vw - 1.5rem));
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 0.7rem;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+.tag-popover-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+
+.tag-popover-empty {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.popover-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  background: var(--active-bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.12rem 0.3rem 0.12rem 0.6rem;
+  color: var(--text);
+}
+
+.popover-chip button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 0.1rem;
+}
+
+.popover-chip button:hover {
+  color: var(--accent);
+}
+
+.tag-add {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.tag-add:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 /* ── Mobile ──────────────────────────────────────────────────── */
@@ -710,10 +1539,6 @@ article th {
     font-size: 1.75rem;
   }
 
-  article p {
-    font-size: 1.06rem;
-  }
-
   .pagination {
     flex-direction: column;
   }
@@ -741,5 +1566,31 @@ article th {
   .sidebar nav a {
     padding: 0.55rem 0.5rem;
     font-size: 0.9rem;
+  }
+
+  /* Panels become bottom sheets on phones. */
+  .reader-panel {
+    top: auto;
+    right: 0;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: min(70vh, 560px);
+    border-radius: 16px 16px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+  }
+
+  /* Chip bars scroll sideways instead of wrapping into clutter. */
+  .chip-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 0.3rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .chip {
+    flex: 0 0 auto;
   }
 }

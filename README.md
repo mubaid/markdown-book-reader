@@ -25,6 +25,12 @@ E-book apps want your library in their cloud, your reading habits in their analy
 - 🖼️ **A real shelf** — cover thumbnails, per-book progress bars, "continue reading" cards sorted by what you read last, author names that open a page with all of their books, and instant search by title or author.
 - 🔒 **100% local & offline** — the server binds to your LAN; nothing leaves your network. Progress lives in your browser's `localStorage`.
 - ✍️ **Hand-editable everything** — chapters are Markdown, metadata is JSON. Fix a bad conversion with any editor; changes appear on the next page load.
+- 🔤 **Reading comfort** — in-app controls for theme (Auto/Light/Sepia/Dark/OLED), font size, typeface, and text width; saved per browser and applied before first paint.
+- 🖍️ **Highlights & bookmarks** — select text to highlight in three colors, add notes, and jump back from the sidebar tabs. Highlights are anchored to paragraph text hashes, so they survive reconversion. Export all highlights as Markdown.
+- 🔍 **In-book search** — full-text search across every chapter of a book with snippets and match counts; results jump to the exact paragraph and mark matches in the page.
+- 🔊 **Read-aloud** — text-to-speech from your current paragraph, following along across paragraphs and chapters with auto-scroll. Voice and rate are configurable. See [Read-aloud limits](#read-aloud-limits).
+- 🏷️ **Shelf tags & filters** — tag books, filter by status (Unread/Reading/Finished) and tags, sort by recency, title, author, or date added.
+- 📲 **Install as an app** — PWA with offline reading: opened chapters stay readable in airplane mode once cached. Offline caching needs HTTPS or `localhost` (a browser security rule); on plain `http://` LAN addresses the app still installs, but offline caching is unavailable.
 - 🪶 **Tiny footprint** — one Node dependency (`marked`) and three Python converters. No database, no build step, no framework.
 
 ## Quickstart
@@ -180,6 +186,11 @@ server.js         HTTP server
 - PDF chapter boundaries rely on the PDF's table of contents first, then font-size/heading detection.
 - Markdown splitting needs consistent ATX headings (`#`, `##`) outside code fences.
 - Markdown front matter is a simple `key: value` parser, not full YAML.
+- Offline caching (service worker) only registers in a secure context: HTTPS or `localhost`. Browsers refuse service workers on plain `http://` LAN IPs, so phone offline reading needs a reverse proxy with TLS (or a tunnel) in front of the server.
+
+### Read-aloud limits
+
+Read-aloud uses the browser's built-in speech synthesis. It works while the screen is on; mobile browsers may suspend speech when the screen locks or the tab goes to the background (iOS Safari is the strictest). Voice quality depends on the voices your browser provides — Android Chrome and iOS Safari ship different sets. If your browser has no speech synthesis, the read-aloud buttons don't appear at all.
 
 ## Troubleshooting
 
@@ -200,7 +211,6 @@ Ideas, not promises — PRs welcome:
 - [ ] PDF image extraction
 - [ ] Optional OCR pass for scanned PDFs
 - [ ] Cross-device progress sync (still local-first)
-- [ ] In-reader font size / theme controls
 - [ ] Full YAML front matter support
 
 ## Contributing
