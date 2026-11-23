@@ -104,6 +104,47 @@
     return blocks.find(block => block.getBoundingClientRect().bottom > offset) || blocks[0];
   }
 
+  // Subtle scroll-reveal for top-level chapter blocks. Opt-in: the hidden
+  // state lives under .reveal-ready, added only when motion is allowed, so
+  // no-JS/print/reduced-motion always show full content. sync() instantly
+  // reveals on-screen blocks after programmatic restore jumps — no fade at
+  // the saved reading position.
+  function createReveal(article) {
+    if (!('IntersectionObserver' in window)) return null;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
+    const blocks = Array.from(article.querySelectorAll(':scope > *'));
+    if (blocks.length === 0) return null;
+    const io = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in');
+          io.unobserve(entry.target);
+        }
+      }
+    }, { rootMargin: '0px 0px -6% 0px' });
+    function sync() {
+      const vh = window.innerHeight;
+      for (const block of blocks) {
+        if (block.classList.contains('in')) continue;
+        const rect = block.getBoundingClientRect();
+        if (rect.top < vh && rect.bottom > 0) {
+          block.classList.add('reveal-instant', 'in');
+          io.unobserve(block);
+        }
+      }
+      window.requestAnimationFrame(() => {
+        for (const block of blocks) block.classList.remove('reveal-instant');
+      });
+    }
+    article.classList.add('reveal-ready');
+    for (const block of blocks) {
+      block.classList.add('reveal');
+      io.observe(block);
+    }
+    sync();
+    return { sync };
+  }
+
   // ── Reader ──────────────────────────────────────────────────────
 
   function initReader() {
@@ -165,6 +206,8 @@
       return Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
     }
 
+    const reveal = createReveal(article);
+
     function restore(savedProgress) {
       const target = elementForAnchor(savedProgress.anchor)
         || (savedProgress.blockId && /^blk-[a-z0-9-]+$/i.test(savedProgress.blockId)
@@ -184,6 +227,7 @@
       if (!saved || saved.chapterId !== chapterId || userMoved) return;
       restore(saved);
       restoredAt = Date.now();
+      if (reveal) reveal.sync();
     }
 
     maybeRestore();

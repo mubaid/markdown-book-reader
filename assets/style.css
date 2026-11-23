@@ -6,6 +6,46 @@
   padding: 0;
 }
 
+/* Self-hosted Literata (SIL OFL, see fonts/OFL.txt). Variable font, weights
+   200–900, roman + italic, latin + latin-ext subsets (latin-ext covers
+   U+1E00–1E9F for Urdu transliteration). Precached by sw.js for offline. */
+
+@font-face {
+  font-family: 'Literata';
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url('fonts/literata-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Literata';
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url('fonts/literata-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Literata';
+  font-style: italic;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url('fonts/literata-italic-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Literata';
+  font-style: italic;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url('fonts/literata-italic-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 /* Theme tokens. Unset data-theme behaves as "auto": light, with the dark
    media query below applying when the OS prefers dark. The inline bootstrap
    in book.js sets data-theme explicitly before first paint. */
@@ -14,7 +54,7 @@
   --sidebar-width: 290px;
   --content-max: 720px;
   --reader-font-size: 19px;
-  --reader-font: Georgia, 'Times New Roman', Times, serif;
+  --reader-font: 'Literata', Georgia, 'Times New Roman', Times, serif;
   --bg: #faf9f6;
   --bg-card: #fffdf9;
   --bg-sidebar: #f0eeea;
@@ -115,7 +155,7 @@ html {
 }
 
 body {
-  font-family: Georgia, 'Times New Roman', Times, serif;
+  font-family: 'Literata', Georgia, 'Times New Roman', Times, serif;
   background: var(--bg);
   color: var(--text);
   line-height: 1.8;
@@ -323,6 +363,16 @@ article p {
   font-size: var(--reader-font-size);
 }
 
+/* Drop cap on the chapter's opening paragraph (pure CSS — block anchors
+   and highlights are untouched). */
+article > p:first-of-type::first-letter {
+  float: left;
+  font-size: 3.3em;
+  line-height: 0.85;
+  font-weight: 600;
+  margin: 0.04em 0.1em 0 0;
+}
+
 article a {
   color: var(--accent);
   text-decoration: underline;
@@ -361,6 +411,34 @@ article blockquote {
 }
 
 article blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* "Key Takeaways" callout — wrapped server-side by wrapTakeaways() in
+   book.js. --active-bg is the soft accent tint in every theme. */
+article .takeaways {
+  background: var(--active-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0.5rem 1.5rem 1.25rem;
+  margin: 2.5rem 0 1.5rem;
+}
+
+article .takeaways > h2:first-child,
+article .takeaways > h3:first-child {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+article .takeaways > h2:first-child::before,
+article .takeaways > h3:first-child::before {
+  content: '★';
+  color: var(--accent);
+}
+
+article .takeaways > :last-child {
   margin-bottom: 0;
 }
 
@@ -409,6 +487,37 @@ article hr {
   border: none;
   border-top: 1px solid var(--border);
   margin: 2rem 0;
+}
+
+/* Scroll reveal. The hidden state only applies under .reveal-ready, which
+   JS adds after checking prefers-reduced-motion — so no-JS, print, and
+   reduced-motion users always see full content. The transition lives on
+   the .in target state only: applying the hidden state never animates
+   (no fade-out flash if classes land after first paint), while revealing
+   does. .reveal-instant suppresses even that for programmatic restore
+   jumps, so the saved reading position appears immediately. */
+article.reveal-ready .reveal {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+article.reveal-ready .reveal.in {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+article.reveal-ready .reveal.reveal-instant {
+  transition: none;
+}
+
+@media print {
+  article.reveal-ready .reveal,
+  article.reveal-ready .reveal.in {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }
 
 article table {

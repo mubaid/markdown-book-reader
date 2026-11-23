@@ -8,7 +8,7 @@
 // requests still go to the network first — an mtime bump therefore reaches
 // installed PWAs on the next load instead of serving a stale cache forever.
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL_CACHE = `mbr-shell-${VERSION}`;
 const PAGE_CACHE = `mbr-runtime-${VERSION}`;
 const IMAGE_CACHE = `mbr-images-${VERSION}`;
@@ -22,6 +22,10 @@ const SHELL_URLS = [
   '/assets/annotations.js',
   '/assets/search.js',
   '/assets/tts.js',
+  '/assets/fonts/literata-latin.woff2',
+  '/assets/fonts/literata-latin-ext.woff2',
+  '/assets/fonts/literata-italic-latin.woff2',
+  '/assets/fonts/literata-italic-latin-ext.woff2',
   '/manifest.webmanifest',
   '/assets/icons/icon-192.png',
   '/assets/icons/icon-512.png',

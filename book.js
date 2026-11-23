@@ -100,8 +100,43 @@ function readChapter(book, chapterId) {
   }
 }
 
+// Wrap a "Key Takeaways" section (its heading through the next heading of
+// the same or higher level, or end of chapter) in a styled callout container.
+// No match → html unchanged. Headings inside blockquotes are skipped so the
+// wrapper can never cut across another element's closing tag.
+function wrapTakeaways(html) {
+  const headingRe = /<h([1-6])([^>]*)>([\s\S]*?)<\/h\1>/g;
+  const headings = [];
+  let match;
+  while ((match = headingRe.exec(html)) !== null) {
+    headings.push({
+      level: Number(match[1]),
+      start: match.index,
+      end: headingRe.lastIndex,
+      text: match[3].replace(/<[^>]*>/g, ''),
+    });
+  }
+  for (let i = 0; i < headings.length; i += 1) {
+    const heading = headings[i];
+    if (!/^\s*(?:★\s*)?(?:\d+[.):-]\s*)?key takeaways\s*$/i.test(heading.text)) continue;
+    const before = html.slice(0, heading.start);
+    const opens = (before.match(/<blockquote/g) || []).length;
+    const closes = (before.match(/<\/blockquote>/g) || []).length;
+    if (opens !== closes) continue;
+    let stop = html.length;
+    for (let j = i + 1; j < headings.length; j += 1) {
+      if (headings[j].level <= heading.level) {
+        stop = headings[j].start;
+        break;
+      }
+    }
+    return `${before}<section class="takeaways">\n${html.slice(heading.start, stop)}</section>\n${html.slice(stop)}`;
+  }
+  return html;
+}
+
 function renderMarkdown(markdown) {
-  return marked.parse(markdown);
+  return wrapTakeaways(marked.parse(markdown));
 }
 
 function coverPath(book) {

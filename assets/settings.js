@@ -15,7 +15,7 @@
     ttsRate: 1,          // 0.7–1.5
   };
 
-  const SERIF_STACK = "Georgia, 'Times New Roman', Times, serif";
+  const SERIF_STACK = "'Literata', Georgia, 'Times New Roman', Times, serif";
   const SANS_STACK = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
   // In-session copy; persistence is best-effort.
