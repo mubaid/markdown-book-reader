@@ -191,7 +191,10 @@
       if (!text.trim()) return null;
 
       const segments = [];
-      for (const block of MBR.blocks) {
+      // Innermost blocks only: a blockquote/loose list item and its paragraph
+      // are both stamped, and processing both would wrap the range twice.
+      const candidates = (MBR.leafBlocks && MBR.leafBlocks.length) ? MBR.leafBlocks : MBR.blocks;
+      for (const block of candidates) {
         if (!range.intersectsNode(block)) continue;
         let start = 0;
         let end = block.textContent.length;

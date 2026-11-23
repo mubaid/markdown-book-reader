@@ -170,6 +170,19 @@
     }
 
     const blocks = stampBlocks(article);
+    // Containers (blockquote, loose li) and their child paragraphs both get
+    // stamped. Consumers that act on text (highlights, read-aloud, search)
+    // must use the innermost blocks only, or the same text is processed twice.
+    // Mark every stamped block that has a stamped descendant, then keep the
+    // rest. Stamping itself stays untouched: saved anchors keep working.
+    const blockSet = new Set(blocks);
+    const containers = new Set();
+    for (const block of blocks) {
+      for (let ancestor = block.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        if (blockSet.has(ancestor)) containers.add(ancestor);
+      }
+    }
+    const leafBlocks = blocks.filter(block => !containers.has(block));
     const percentEl = document.querySelector('[data-progress-percent]');
 
     function updatePercent(bookFraction) {
@@ -183,8 +196,20 @@
     }
 
     let userMoved = false;
+    let manualMove = false;
+    let lastJump = null;
     let suppressSave = !isEntry && saved && saved.chapterId === chapterId;
     let restoredAt = 0;
+
+    // Scroll to a stamped block, remembering it so it can be re-anchored once
+    // images above it have loaded and changed the layout.
+    function jumpTo(anchor) {
+      const target = elementForAnchor(anchor);
+      if (!target) return false;
+      target.scrollIntoView({ block: 'start' });
+      lastJump = anchor;
+      return true;
+    }
 
     // URL navigation convention: ?goto=<anchor> beats saved-progress restore,
     // but only when the anchor actually exists — a stale link must not wipe
@@ -192,14 +217,10 @@
     const params = new URLSearchParams(window.location.search);
     const gotoAnchor = params.get('goto');
     let jumped = false;
-    if (gotoAnchor) {
-      const target = elementForAnchor(gotoAnchor);
-      if (target) {
-        jumped = true;
-        userMoved = true;
-        suppressSave = false;
-        target.scrollIntoView({ block: 'start' });
-      }
+    if (gotoAnchor && jumpTo(gotoAnchor)) {
+      jumped = true;
+      userMoved = true;
+      suppressSave = false;
     }
 
     function maxScroll() {
@@ -238,12 +259,22 @@
     }, 450);
 
     window.addEventListener('load', () => {
+      // Images above a ?goto=/search/highlight target can load after the jump
+      // and push it out of place. Re-anchor once everything has loaded.
+      if (lastJump && !manualMove) {
+        const target = elementForAnchor(lastJump);
+        if (target) {
+          target.scrollIntoView({ block: 'start' });
+          persist();
+        }
+      }
       if (Date.now() - restoredAt < 4000) maybeRestore();
     });
 
     for (const eventName of ['wheel', 'touchstart', 'touchmove', 'keydown', 'mousedown']) {
       window.addEventListener(eventName, () => {
         userMoved = true;
+        manualMove = true;
         suppressSave = false;
       }, { passive: true });
     }
@@ -313,13 +344,12 @@
       chapterIndex,
       chapters,
       blocks,
+      leafBlocks,
       currentTopBlock: () => currentTopBlock(blocks),
       normalize,
       fnv1a,
       goToAnchor(anchor) {
-        const target = elementForAnchor(anchor);
-        if (!target) return false;
-        target.scrollIntoView({ block: 'start' });
+        if (!jumpTo(anchor)) return false;
         userMoved = true;
         suppressSave = false;
         persist();

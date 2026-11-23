@@ -32,6 +32,7 @@
     input.placeholder = 'Search this book…';
     input.autocomplete = 'off';
     input.spellcheck = false;
+    input.maxLength = 100;
     input.setAttribute('aria-label', 'Search this book');
     const results = document.createElement('div');
     results.className = 'search-results';
@@ -108,7 +109,10 @@
     function matchedBlocks(term) {
       const normalized = MBR.normalize(term);
       if (!normalized) return [];
-      return MBR.blocks.filter(block => MBR.normalize(block.textContent).includes(normalized));
+      // Innermost blocks only: marking a blockquote and its paragraph would
+      // wrap the same range twice and double the reported match count.
+      const source = (MBR.leafBlocks && MBR.leafBlocks.length) ? MBR.leafBlocks : MBR.blocks;
+      return source.filter(block => MBR.normalize(block.textContent).includes(normalized));
     }
 
     function markChapter(term) {
@@ -203,22 +207,31 @@
 
     let debounceTimer = 0;
 
+    function showHint(message) {
+      results.replaceChildren();
+      const hint = document.createElement('p');
+      hint.className = 'search-empty-hint';
+      hint.textContent = message;
+      results.appendChild(hint);
+    }
+
     function runSearch(term) {
       fetch(`/api/${encodeURIComponent(MBR.bookId)}/search?q=${encodeURIComponent(term)}`)
         .then(response => {
+          if (response.status === 400) return { invalid: true };
           if (!response.ok) throw new Error(String(response.status));
           return response.json();
         })
         .then(payload => {
+          if (payload.invalid) {
+            showHint('Searches need 2–100 characters.');
+            return;
+          }
           if (payload.query === input.value.trim()) renderResults(payload);
         })
         .catch(() => {
           // Offline or server unreachable: say so instead of spinning.
-          results.replaceChildren();
-          const hint = document.createElement('p');
-          hint.className = 'search-empty-hint';
-          hint.textContent = 'Search needs the server.';
-          results.appendChild(hint);
+          showHint('Search needs the server.');
         });
     }
 

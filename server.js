@@ -91,14 +91,24 @@ function serveFile(req, res, filePath, cache = 'no-store') {
   });
 }
 
-function serveProjectAsset(req, res, segments) {
-  // /assets/<file> and /assets/<dir>/<file> (icons), each segment validated.
+function projectAssetPath(segments) {
+  // /assets/<file> and /assets/<dir>/<file> (icons, fonts), each segment validated.
   const relative = segments.slice(1);
-  if (relative.length === 0 || relative.length > 2 || !relative.every(isSafeFile)) {
-    notFound(req, res);
-    return;
+  if (relative.length === 0 || relative.length > 2 || !relative.every(isSafeFile)) return null;
+  return safeJoin(ASSETS_DIR, relative.join(path.sep));
+}
+
+function existingFile(filePath) {
+  if (!filePath) return false;
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
   }
-  const filePath = safeJoin(ASSETS_DIR, relative.join(path.sep));
+}
+
+function serveProjectAsset(req, res, segments) {
+  const filePath = projectAssetPath(segments);
   if (!filePath) {
     notFound(req, res);
     return;
@@ -206,6 +216,53 @@ function handleApi(req, res, segments, searchParams) {
   sendJson(req, res, 200, searchBook(book, term));
 }
 
+// Library routes: /<bookId>/, /<bookId>/<chapterId>, book assets and covers.
+function handleBookRoute(req, res, book, segments) {
+  if (segments.length === 1) {
+    const first = book.chapters[0];
+    const result = readChapter(book, first.id);
+    if (!result) {
+      notFound(req, res);
+      return;
+    }
+    html(req, res, 200, renderReaderPage(book, result.chapter, 0, result.markdown, { entry: true }));
+    return;
+  }
+
+  if (segments.length === 2 && segments[1] === 'assets') {
+    notFound(req, res);
+    return;
+  }
+
+  if (segments[1] === 'assets') {
+    serveBookAsset(req, res, book, segments);
+    return;
+  }
+
+  if (segments.length === 2 && book.cover === segments[1]) {
+    const coverPath = safeJoin(bookDir(book.id), book.cover);
+    if (!coverPath) {
+      notFound(req, res);
+      return;
+    }
+    serveFile(req, res, coverPath, 'public, max-age=86400');
+    return;
+  }
+
+  if (segments.length === 2) {
+    const result = readChapter(book, segments[1]);
+    if (!result) {
+      notFound(req, res);
+      return;
+    }
+    const index = book.chapters.findIndex(chapter => chapter.id === result.chapter.id);
+    html(req, res, 200, renderReaderPage(book, result.chapter, index, result.markdown));
+    return;
+  }
+
+  notFound(req, res);
+}
+
 function handle(req, res) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     send(req, res, 405, 'text/plain; charset=utf-8', 'Method not allowed');
@@ -258,6 +315,17 @@ function handle(req, res) {
   }
 
   if (segments[0] === 'assets') {
+    // "assets" is also a legal book id. A real project file wins; otherwise a
+    // book with that id serves its entry/chapter/cover route.
+    if (segments.length > 2) {
+      serveProjectAsset(req, res, segments);
+      return;
+    }
+    const book = readBook('assets');
+    if (book && !existingFile(projectAssetPath(segments))) {
+      handleBookRoute(req, res, book, segments);
+      return;
+    }
     serveProjectAsset(req, res, segments);
     return;
   }
@@ -269,11 +337,17 @@ function handle(req, res) {
 
   if (segments[0] === 'author') {
     const author = segments.length === 2 ? findAuthor(segments[1]) : null;
-    if (!author) {
-      notFound(req, res);
+    if (author) {
+      html(req, res, 200, renderAuthorPage(author, author.books));
       return;
     }
-    html(req, res, 200, renderAuthorPage(author, author.books));
+    // "author" is also a legal book id.
+    const book = readBook('author');
+    if (book) {
+      handleBookRoute(req, res, book, segments);
+      return;
+    }
+    notFound(req, res);
     return;
   }
 
@@ -282,50 +356,7 @@ function handle(req, res) {
     notFound(req, res);
     return;
   }
-
-  if (segments.length === 1) {
-    const first = book.chapters[0];
-    const result = readChapter(book, first.id);
-    if (!result) {
-      notFound(req, res);
-      return;
-    }
-    html(req, res, 200, renderReaderPage(book, result.chapter, 0, result.markdown, { entry: true }));
-    return;
-  }
-
-  if (segments.length === 2 && segments[1] === 'assets') {
-    notFound(req, res);
-    return;
-  }
-
-  if (segments[1] === 'assets') {
-    serveBookAsset(req, res, book, segments);
-    return;
-  }
-
-  if (segments.length === 2 && book.cover === segments[1]) {
-    const coverPath = safeJoin(bookDir(book.id), book.cover);
-    if (!coverPath) {
-      notFound(req, res);
-      return;
-    }
-    serveFile(req, res, coverPath, 'public, max-age=86400');
-    return;
-  }
-
-  if (segments.length === 2) {
-    const result = readChapter(book, segments[1]);
-    if (!result) {
-      notFound(req, res);
-      return;
-    }
-    const index = book.chapters.findIndex(chapter => chapter.id === result.chapter.id);
-    html(req, res, 200, renderReaderPage(book, result.chapter, index, result.markdown));
-    return;
-  }
-
-  notFound(req, res);
+  handleBookRoute(req, res, book, segments);
 }
 
 const server = http.createServer((req, res) => {

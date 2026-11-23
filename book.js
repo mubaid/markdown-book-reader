@@ -165,14 +165,22 @@ function authorNames(book) {
 }
 
 function authorHref(name, latin) {
-  return `/author/${authorSlug(latin || name)}`;
+  const slug = authorSlug(latin || name);
+  // A name with no Latin characters and no transliteration has no usable
+  // slug; link nowhere instead of emitting a dead /author/ URL.
+  return slug ? `/author/${slug}` : null;
 }
 
 function authorLine(book) {
   const authors = authorNames(book);
   const names = authors.length
     ? authors
-      .map(author => `<a class="author-link" href="${esc(authorHref(author.name, author.latin))}">${esc(author.name)}</a>`)
+      .map(author => {
+        const href = authorHref(author.name, author.latin);
+        return href
+          ? `<a class="author-link" href="${esc(href)}">${esc(author.name)}</a>`
+          : `<span class="author-link">${esc(author.name)}</span>`;
+      })
       .join(', ')
     : 'Unknown author';
   const year = book.year ? ` · ${esc(book.year)}` : '';

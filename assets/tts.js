@@ -126,10 +126,25 @@
       }
     }
 
-    function buildQueueFrom(startIndex) {
+    function buildQueueFrom(fromBlock) {
+      // Innermost blocks only: containers (blockquote, loose list items) and
+      // their paragraphs are both stamped, so reading MBR.blocks would speak
+      // every quote/list item twice.
+      const source = (MBR.leafBlocks && MBR.leafBlocks.length) ? MBR.leafBlocks : MBR.blocks;
+      let startIndex = 0;
+      if (fromBlock) {
+        const exact = source.indexOf(fromBlock);
+        if (exact >= 0) {
+          startIndex = exact;
+        } else {
+          // currentTopBlock() can return a container; begin at its first leaf.
+          const inside = source.findIndex(block => fromBlock.contains(block));
+          if (inside >= 0) startIndex = inside;
+        }
+      }
       queue = [];
-      for (let i = startIndex; i < MBR.blocks.length; i += 1) {
-        const block = MBR.blocks[i];
+      for (let i = startIndex; i < source.length; i += 1) {
+        const block = source[i];
         const chunks = chunkText(block.textContent);
         for (const text of chunks) queue.push({ text, block });
       }
@@ -215,8 +230,7 @@
       if (playing) return;
       generation += 1; // stale events from a previous session must not advance this queue
       window.speechSynthesis.cancel(); // clear any leftover queue from iOS quirks
-      const startIndex = fromBlock ? Math.max(0, MBR.blocks.indexOf(fromBlock)) : 0;
-      buildQueueFrom(startIndex);
+      buildQueueFrom(fromBlock);
       playing = true;
       paused = false;
       updateButtons();
